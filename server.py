@@ -879,17 +879,25 @@ async def generate_pdf(
             custom_flags=['--no-sandbox', '--disable-gpu', '--headless', '--disable-dev-shm-usage']
         )
         
-        # Screenshot to PDF
-        hti.screenshot(html_str=html_content, save_as=output_pdf)
+        # 1. Screenshot to PNG (html2image doesn't support direct PDF output)
+        output_png = f"Report_{timestamp}.png"
+        png_path = os.path.join(temp_dir, output_png)
+        
+        hti.screenshot(html_str=html_content, save_as=output_png)
+        
+        if not os.path.exists(png_path):
+             raise HTTPException(status_code=500, detail="HTML renrder failed: PNG snapshot not created.")
+
+        # 2. Convert PNG to PDF using PIL
+        image = Image.open(png_path)
+        # Convert to RGB (remove alpha channel if present, as PDF doesn't support transparency same way)
+        if image.mode == 'RGBA':
+            image = image.convert('RGB')
+            
+        image.save(output_path, "PDF", resolution=100.0, save_all=True)
         
         if not os.path.exists(output_path):
-             print(f"ERROR: PDF not created at {output_path}")
-             # Check if maybe it made a png?
-             png_path = output_path.replace(".pdf", ".png")
-             if os.path.exists(png_path):
-                 print("WARN: html2image made a PNG instead. Renaming/Converting not implemented yet, returning error.")
-             
-             raise HTTPException(status_code=500, detail="PDF generation failed (file not created). Chrome crash likely.")
+             raise HTTPException(status_code=500, detail="PDF conversion failed.")
 
         # Return the file
         return FileResponse(
