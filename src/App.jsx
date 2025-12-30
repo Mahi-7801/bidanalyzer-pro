@@ -39,23 +39,27 @@ function App() {
   const [history, setHistory] = useState([]);
 
   // Handle Analysis
-  const handleAnalyze = async () => {
-    if (!selectedFile) {
+  const handleAnalyze = async (fileInput = null) => {
+    const fileToProcess = fileInput || selectedFile;
+
+    if (!fileToProcess) {
       alert("Please select a file first.");
       return;
     }
+
+    if (fileInput) setSelectedFile(fileInput);
 
     setLoading(true);
     setError(null);
 
     const formData = new FormData();
-    formData.append('file', selectedFile);
+    formData.append('file', fileToProcess);
 
     try {
       // Assume backend runs on port 8000
       const response = await fetch(`${API_BASE_URL}/analyze`, {
         method: 'POST',
-        headers: apiKey ? { 'x-api-key': apiKey } : {},
+        // headers: apiKey ? { 'x-api-key': apiKey } : {}, // Removed manual key key
         body: formData,
       });
 
@@ -175,6 +179,7 @@ function App() {
         view={view}
         setSelectedFile={setSelectedFile}
         selectedFile={selectedFile}
+        onAnalyze={handleAnalyze} // Pass handleAnalyze to Sidebar
       />
 
       <main className="main-content">
@@ -208,7 +213,7 @@ function App() {
 
 // --- Components ---
 
-const Sidebar = ({ apiKey, setApiKey, onReset, view, setSelectedFile, selectedFile }) => {
+const Sidebar = ({ apiKey, setApiKey, onReset, view, setSelectedFile, selectedFile, onAnalyze }) => {
   return (
     <aside className="sidebar">
       <div className="sidebar-section">
@@ -222,18 +227,7 @@ const Sidebar = ({ apiKey, setApiKey, onReset, view, setSelectedFile, selectedFi
           <FileText size={16} /> Upload Document
         </h4>
 
-        {!apiKey && (
-          <div className="input-group">
-            <label className="input-label">Gemini API Key (Optional)</label>
-            <input
-              type="password"
-              className="text-input"
-              placeholder="Leave empty to use Server Key"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-            />
-          </div>
-        )}
+        {/* API Key Input Removed as per request */}
 
         <div className="input-group">
           <label className="input-label">Choose File</label>
@@ -241,7 +235,13 @@ const Sidebar = ({ apiKey, setApiKey, onReset, view, setSelectedFile, selectedFi
             type="file"
             className="text-input"
             style={{ padding: '0.5rem' }}
-            onChange={(e) => setSelectedFile(e.target.files[0])}
+            onChange={(e) => {
+              const file = e.target.files[0];
+              if (file) {
+                setSelectedFile(file);
+                onAnalyze(file); // Trigger instant analysis
+              }
+            }}
           />
           {selectedFile && <div style={{ fontSize: '0.8rem', marginTop: '0.5rem', color: '#28a745' }}>{selectedFile.name}</div>}
         </div>
@@ -337,7 +337,9 @@ const UploadSection = ({ onAnalyze, loading, selectedFile, setSelectedFile, erro
   const handleDrop = (e) => {
     e.preventDefault();
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      setSelectedFile(e.dataTransfer.files[0]);
+      const file = e.dataTransfer.files[0];
+      setSelectedFile(file);
+      onAnalyze(file); // Trigger instant analysis
     }
   };
 
