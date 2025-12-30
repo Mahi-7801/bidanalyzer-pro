@@ -900,27 +900,72 @@ async def generate_pdf(
         img_width, img_height = image.size
         pages = []
         
-        # Slice image into A4 chunks
-        for y in range(0, img_height, A4_HEIGHT):
-            # Define box (left, upper, right, lower)
-            box = (0, y, A4_WIDTH, min(y + A4_HEIGHT, img_height))
+        current_y = 0
+        
+        while current_y < img_height:
+            # Determine maximum possible cut point (bottom of A4)
+            target_cut = min(current_y + A4_HEIGHT, img_height)
             
-            # Use crop()
+            # If we reached the end, just take the rest
+            if target_cut == img_height:
+                box = (0, current_y, A4_WIDTH, target_cut)
+                page = image.crop(box)
+                
+                # Check if mostly empty
+                if page.getbbox():
+                     # Pad to A4
+                    pdf_page = Image.new("RGB", (A4_WIDTH, A4_HEIGHT), (255, 255, 255))
+                    pdf_page.paste(page, (0, 0))
+                    pages.append(pdf_page)
+                break
+
+            # SMART SLICING: Scan upwards from target_cut to find whitespace
+            # We look for a row of pixels that is fully white (or close to it)
+            # Scan limit: look up to 400px up
+            scan_limit = 400 
+            found_cut = -1
+            
+            # Convert to numpy array for speed if possible, but standard pixel access is okay for logic clarity
+            # Optimize: Check center column pixel first? No, need full row.
+            
+            for y_offset in range(0, scan_limit, 5): # Step by 5px for speed
+                test_y = target_cut - y_offset
+                
+                # Check a horizontal line of pixels at test_y
+                # We don't need to check every single pixel, checking every 10th pixel is enough estimate
+                is_white_row = True
+                for x in range(50, A4_WIDTH - 50, 10): # Margin 50px
+                    try:
+                        pixel = image.getpixel((x, test_y))
+                        # Check if pixel is not white (allow some noise)
+                        if sum(pixel) < 750: # 255*3 = 765. <750 means some color/grey
+                            is_white_row = False
+                            break
+                    except: 
+                        break
+                
+                if is_white_row:
+                    found_cut = test_y
+                    break
+            
+            # Decide where to cut
+            if found_cut != -1:
+                cut_y = found_cut
+            else:
+                cut_y = target_cut # Fallback to hard cut if no break found
+            
+            # Perform Crop
+            box = (0, current_y, A4_WIDTH, cut_y)
             page = image.crop(box)
             
-            # If the last page is just white space/empty, we could skip it, 
-            # but checking for "emptiness" is expensive. 
-            # We'll just check if it's too short (e.g. < 50px)
-            if page.height < 50:
-                continue
-                
-            # Resize/Pad last page to A4 if needed? 
-            # Usually better to leave it partial or pad with white.
-            # For PDF consistency, let's create a white A4 canvas and paste content
+            # Create PDF friendly page (White Background A4)
             pdf_page = Image.new("RGB", (A4_WIDTH, A4_HEIGHT), (255, 255, 255))
-            pdf_page.paste(page, (0, 0))
+            pdf_page.paste(page, (0, 0)) # Paste at top
             
             pages.append(pdf_page)
+            
+            # Move current_y to the cut point
+            current_y = cut_y
 
         if not pages:
             raise HTTPException(status_code=500, detail="PDF conversion failed: No pages generated.")
