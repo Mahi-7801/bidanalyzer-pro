@@ -948,24 +948,25 @@ async def generate_pdf(
                 is_uniform = True
                 first_pixel = None
                 
-                # Fast sample (center 80%)
-                for x in range(100, A4_WIDTH - 100, 50):
+                # Fast sample (center 70% to ignore side backgrounds)
+                # A4 Width is 1240. Center is ~620. 
+                # Scan from 200 to 1040.
+                for x in range(200, 1040, 20):
                     p = image.getpixel((x, test_y))
-                    # Convert to simple brightness
-                    b = sum(p) # 0-765
+                    b = sum(p) 
                     
                     if first_pixel is None:
                         first_pixel = b
                     
-                    # Allow small noise (JPEG artifacts etc) -> +/- 15 brightness
-                    if abs(b - first_pixel) > 30:
+                    # Allow slightly more noise for text vs white
+                    if abs(b - first_pixel) > 40:
                         is_uniform = False
                         break
                 
                 if is_uniform:
-                    # We found a uniform row!
-                    # Is it white? (Brightness > 700)
-                    if first_pixel > 700:
+                    # We found a uniform row in the center!
+                    # Is it white/light? (Brightness > 700)
+                    if first_pixel > 650:
                         found_cut = test_y
                         break
                     
