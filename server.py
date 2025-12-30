@@ -904,65 +904,102 @@ async def generate_pdf(
         
         while current_y < img_height:
             # Determine maximum possible cut point (bottom of A4)
-            target_cut = min(current_y + A4_HEIGHT, img_height)
+            # But don't just take A4, looking for a smart break within the last 30% of the page
+            limit_y = min(current_y + A4_HEIGHT, img_height)
             
-            # If we reached the end, just take the rest
-            if target_cut == img_height:
-                box = (0, current_y, A4_WIDTH, target_cut)
+            # If we are near the end (less than half a page left), just take it all if it fits
+            # Or if it fits exactly
+            if limit_y == img_height:
+                box = (0, current_y, A4_WIDTH, limit_y)
                 page = image.crop(box)
                 
-                # Check if mostly empty
-                if page.getbbox():
+                # Content Check: Is this page empty?
+                # Convert to grayscale, invert, getbbox to find non-white pixels
+                # Or just iterate a few pixels.
+                # Fast check: getbbox() returns None if image is all black (after inverting white to black)
+                # But easiest is:
+                gray = page.convert("L")
+                # Counting whitespace is slow, let's use getbbox on inverted
+                # If page is white, inverted is black. getbbox on black returns valid box ONLY if there are non-black pixels.
+                from PIL import ImageOps
+                inverted = ImageOps.invert(gray)
+                if inverted.getbbox():
                      # Pad to A4
                     pdf_page = Image.new("RGB", (A4_WIDTH, A4_HEIGHT), (255, 255, 255))
                     pdf_page.paste(page, (0, 0))
                     pages.append(pdf_page)
                 break
 
-            # SMART SLICING: Scan upwards from target_cut to find whitespace
-            # We look for a row of pixels that is fully white (or close to it)
-            # Scan limit: look up to 400px up
-            scan_limit = 400 
+            # SMART SLICING: Scan upwards from limit_y to find a safe break
+            # We prioritize table borders (grey lines) or whitespace
+            
             found_cut = -1
+            scan_start = limit_y
+            scan_end = max(current_y + 100, limit_y - 600) # Scan up to 600px upwards
             
-            # Convert to numpy array for speed if possible, but standard pixel access is okay for logic clarity
-            # Optimize: Check center column pixel first? No, need full row.
+            # We seek a row that is "uniform". 
+            # Uniform White = Best
+            # Uniform Grey (Border) = Good (Cut before it)
             
-            for y_offset in range(0, scan_limit, 5): # Step by 5px for speed
-                test_y = target_cut - y_offset
+            for test_y in range(scan_start, scan_end, -2): # Scan upwards
                 
-                # Check a horizontal line of pixels at test_y
-                # We don't need to check every single pixel, checking every 10th pixel is enough estimate
-                is_white_row = True
-                for x in range(50, A4_WIDTH - 50, 10): # Margin 50px
-                    try:
-                        pixel = image.getpixel((x, test_y))
-                        # Check if pixel is not white (allow some noise)
-                        if sum(pixel) < 750: # 255*3 = 765. <750 means some color/grey
-                            is_white_row = False
-                            break
-                    except: 
+                # Check row uniformity
+                # Sample 20 points across the row
+                row_pixels = []
+                is_uniform = True
+                first_pixel = None
+                
+                # Fast sample (center 80%)
+                for x in range(100, A4_WIDTH - 100, 50):
+                    p = image.getpixel((x, test_y))
+                    # Convert to simple brightness
+                    b = sum(p) # 0-765
+                    
+                    if first_pixel is None:
+                        first_pixel = b
+                    
+                    # Allow small noise (JPEG artifacts etc) -> +/- 15 brightness
+                    if abs(b - first_pixel) > 30:
+                        is_uniform = False
                         break
                 
-                if is_white_row:
+                if is_uniform:
+                    # We found a uniform row!
+                    # Is it white? (Brightness > 700)
+                    if first_pixel > 700:
+                        found_cut = test_y
+                        break
+                    
+                    # Is it a table border? (Grey, Brightness around 500-700 usually, or darker)
+                    # If it's a border, we might want to ensure we cut BEFORE it if we are scanning up, 
+                    # or allow it to be the bottom of the previous page.
+                    # Let's say any uniform row is a potential cut.
                     found_cut = test_y
-                    break
             
             # Decide where to cut
             if found_cut != -1:
                 cut_y = found_cut
             else:
-                cut_y = target_cut # Fallback to hard cut if no break found
+                cut_y = limit_y # Fallback to hard cut
             
             # Perform Crop
             box = (0, current_y, A4_WIDTH, cut_y)
             page = image.crop(box)
             
-            # Create PDF friendly page (White Background A4)
-            pdf_page = Image.new("RGB", (A4_WIDTH, A4_HEIGHT), (255, 255, 255))
-            pdf_page.paste(page, (0, 0)) # Paste at top
+            # Content Check before adding
+            gray = page.convert("L")
+            inverted = ImageOps.invert(gray)
             
-            pages.append(pdf_page)
+            if inverted.getbbox():
+                # Create PDF friendly page (White Background A4)
+                pdf_page = Image.new("RGB", (A4_WIDTH, A4_HEIGHT), (255, 255, 255))
+                pdf_page.paste(page, (0, 0)) # Paste at top
+                pages.append(pdf_page)
+            else:
+                 # If this page was empty, likely the rest is empty too?
+                 # Don't add, and maybe break?
+                 # But sticking to logic: just don't add.
+                 pass
             
             # Move current_y to the cut point
             current_y = cut_y
