@@ -19,8 +19,9 @@ import {
 import './index.css';
 
 // API Configuration - Update this after deploying to Render
+// API Configuration - Relative path for Docker/HF Spaces (Same Origin)
 const API_BASE_URL = import.meta.env.PROD
-  ? 'https://your-backend-url.onrender.com'  // Replace with your actual Render backend URL
+  ? ''  // Empty string means current origin
   : 'http://localhost:8000';
 
 console.log('API Base URL:', API_BASE_URL);

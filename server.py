@@ -20,12 +20,14 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.units import inch
 
+from fastapi.staticfiles import StaticFiles
+
 # 1. Setup & Config
 load_dotenv()
 
 app = FastAPI()
 
-# Allow CORS for React (Vite defaults to localhost:5173)
+# Allow CORS (still good for dev, though less critical for same-origin prod)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -35,6 +37,17 @@ app.add_middleware(
 )
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+# Serve React Frontend (Static Files)
+# We mount the built 'dist' folder to serve assets and the main page
+if os.path.exists("dist"):
+    app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
+
+@app.get("/")
+async def serve_spa():
+    if os.path.exists("dist/index.html"):
+        return FileResponse("dist/index.html")
+    return {"status": "ok", "message": "Backend running. Frontend not found (run 'npm run build')."}
 
 # 2. Text Extraction
 def extract_text_from_file_path(file_path: str):
@@ -582,6 +595,48 @@ def get_base64_image(image_path):
     except:
         return ""
 
+
+@app.get("/")
+def health_check():
+    return {"status": "ok", "service": "BidAnalyzer Pro API"}
+
+@app.post("/ask")
+async def ask_question(
+    data: dict,
+    x_api_key: Optional[str] = Header(None)
+):
+    try:
+        question = data.get("question")
+        context = data.get("context")
+        
+        if not question or not context:
+             raise HTTPException(status_code=400, detail="Missing question or context")
+
+        # Determine API Key (Header > Env)
+        api_key = x_api_key or GEMINI_API_KEY
+        if not api_key:
+            raise HTTPException(status_code=400, detail="Gemini API Key missing.")
+
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        
+        prompt = f"""
+        You are a helpful expert assistant for a government tender document.
+        Here is the JSON summary of the tender document:
+        {context}
+        
+        Question: {question}
+        
+        Answer the question concisely based strictly on the provided context. If the answer is not in the context, say so.
+        """
+        
+        response = model.generate_content(prompt)
+        return {"answer": response.text}
+        
+    except Exception as e:
+        print(f"Ask Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 def generate_formatted_html(data):
     # Load Template
     bg_base64 = get_base64_image("Bidalert template.png")
@@ -768,70 +823,26 @@ async def generate_pdf(
 ):
     try:
         report_data = data.get("data")
-        
-        # 1. Generate HTML
-        html_content = generate_formatted_html(report_data)
-        
-        # 2. HTML -> Image (Capture tall screenshot for multi-page)
-        hti = Html2Image()
-        
-        # Capture much taller to allow overflow
-        output_res = (1240, 3500)  # Width x Height (supports ~2 full pages)
-        
-        temp_img = f"temp_report_{int(time.time())}.png"
-        hti.screenshot(html_str=html_content, save_as=temp_img, size=output_res)
-        
-        # 3. Image -> Multi-page PDF
+        if not report_data:
+             raise HTTPException(status_code=400, detail="No data provided for report generation")
+             
+        # Use ReportLab implementation (Server-side, no browser required)
         output_pdf = f"Report_{int(time.time())}.pdf"
         
-        full_image = Image.open(temp_img).convert('RGB')
+        # Generate the PDF using the helper function defined earlier
+        generate_pdf_report(report_data, output_pdf)
         
-        # A4 dimensions in pixels at 150 DPI
-        a4_height = 1754
-        width = 1240
-        
-        # Split into pages
-        pages = []
-        current_y = 0
-        
-        while current_y < full_image.height:
-            # Crop one A4-sized page
-            bottom_y = min(current_y + a4_height, full_image.height)
-            page = full_image.crop((0, current_y, width, bottom_y))
-            
-            # If this is a partial page at the end, pad it
-            if page.height < a4_height:
-                padded = Image.new('RGB', (width, a4_height), 'white')
-                padded.paste(page, (0, 0))
-                page = padded
-            
-            pages.append(page)
-            current_y += a4_height
-        
-        # Save as multi-page PDF
-        if pages:
-            pages[0].save(
-                output_pdf, 
-                "PDF", 
-                resolution=150.0, 
-                save_all=True, 
-                append_images=pages[1:] if len(pages) > 1 else []
-            )
-        
-        # Cleanup temp image
-        try: os.remove(temp_img)
-        except: pass
-        
-        return FileResponse(output_pdf, media_type='application/pdf', filename="Bid_Analysis_Report.pdf")
+        # Return the file
+        return FileResponse(
+            output_pdf, 
+            media_type='application/pdf', 
+            filename="Bid_Analysis_Report.pdf",
+            background=None # Let FastAPI handle closing/cleanup if possible, or rely on OS temp cleanup later
+        )
 
     except Exception as e:
         print(f"PDF Gen Error: {e}")
-        # Improve error messaging
-        msg = str(e)
-        if "browsers" in msg.lower() or "executable" in msg.lower():
-            msg = "Could not find a browser (Chrome/Edge) to generate the report. Please ensure Chrome is installed."
-            
-        raise HTTPException(status_code=500, detail=msg)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
