@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse, FileResponse
 import google.generativeai as genai
 from deep_translator import GoogleTranslator
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from fastapi.encoders import jsonable_encoder
 from dotenv import load_dotenv
 from html2image import Html2Image
 from PIL import Image
@@ -22,10 +23,23 @@ from reportlab.lib.units import inch
 
 from fastapi.staticfiles import StaticFiles
 
+from fastapi.exceptions import RequestValidationError
+from fastapi.requests import Request
+
 # 1. Setup & Config
 load_dotenv()
 
 app = FastAPI()
+
+# Global Exception Handler for 422 Validation Errors
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    print(f"⚠️ Validation Error: {exc}")
+    print(f"⚠️ Request Body: {exc.body}")
+    return JSONResponse(
+        status_code=422,
+        content={"detail": jsonable_encoder(exc.errors()), "body": str(exc)}
+    )
 
 # Allow CORS
 app.add_middleware(
@@ -44,7 +58,8 @@ async def log_requests(request, call_next):
     print(f"Response Status: {response.status_code}")
     return response
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+# Sanitize API Key (Remove potential newlines/spaces)
+GEMINI_API_KEY = (os.getenv("GEMINI_API_KEY") or "").strip()
 
 # Serve React Frontend Assets
 if os.path.exists("dist"):
