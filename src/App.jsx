@@ -21,8 +21,8 @@ import './index.css';
 // API Configuration - Update this after deploying to Render
 // API Configuration - Relative path for Docker/HF Spaces (Same Origin)
 const API_BASE_URL = import.meta.env.PROD
-  ? ''  // Empty string means current origin
-  : 'http://localhost:8000';
+  ? '/api'  // Prepends /api to all requests in production
+  : 'http://localhost:8000/api';
 
 console.log('API Base URL:', API_BASE_URL);
 

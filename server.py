@@ -27,7 +27,7 @@ load_dotenv()
 
 app = FastAPI()
 
-# Allow CORS (still good for dev, though less critical for same-origin prod)
+# Allow CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -36,18 +36,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Logger Middleware to debug incoming requests
+@app.middleware("http")
+async def log_requests(request, call_next):
+    print(f"Incoming Request: {request.method} {request.url.path}")
+    response = await call_next(request)
+    print(f"Response Status: {response.status_code}")
+    return response
+
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Serve React Frontend (Static Files)
-# We mount the built 'dist' folder to serve assets and the main page
+# Serve React Frontend Assets
 if os.path.exists("dist"):
     app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
 
-@app.get("/")
-async def serve_spa():
-    if os.path.exists("dist/index.html"):
-        return FileResponse("dist/index.html")
-    return {"status": "ok", "message": "Backend running. Frontend not found (run 'npm run build')."}
+@app.get("/health")
+def health_check():
+    return {"status": "ok", "service": "BidAnalyzer Pro API"}
 
 # 2. Text Extraction
 def extract_text_from_file_path(file_path: str):
@@ -69,13 +74,14 @@ def extract_text_from_file_path(file_path: str):
         print(f"Extraction Error: {e}")
         return None
 
-# ... (Previous Helper Functions) ...
-
-@app.post("/analyze")
+# API ROUTES moved under /api
+@app.post("/api/analyze")
 async def analyze_document(
     file: UploadFile = File(...), 
     x_api_key: Optional[str] = Header(None)
 ):
+    # Log that we hit the endpoint
+    print(f"Analyzing file: {file.filename}")
     # 1. Determine API Key (Header > Env)
     api_key = (x_api_key or "").strip()
     if not api_key:
@@ -566,7 +572,7 @@ def recursive_translate(data, target_lang):
     else:
         return data
 
-@app.post("/translate")
+@app.post("/api/translate")
 async def translate_text(
     data: dict, # { "data": {...}, "target_lang": "hi" }
 ):
@@ -606,7 +612,7 @@ def get_base64_image(image_path):
 def health_check():
     return {"status": "ok", "service": "BidAnalyzer Pro API"}
 
-@app.post("/ask")
+@app.post("/api/ask")
 async def ask_question(
     data: dict,
     x_api_key: Optional[str] = Header(None)
@@ -829,7 +835,7 @@ def generate_formatted_html(data):
     
     return html_content
 
-@app.post("/generate-pdf")
+@app.post("/api/generate-pdf")
 async def generate_pdf(
     data: dict, # { "data": {...} }
 ):
@@ -856,6 +862,18 @@ async def generate_pdf(
         print(f"PDF Gen Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# CATCH-ALL ROUTE for Frontend (must be last)
+@app.get("/{rest_of_path:path}")
+async def catch_all(rest_of_path: str):
+    # If the path looks like an API call but wasn't caught, return 404
+    if rest_of_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="API route not found")
+        
+    # Otherwise serve index.html
+    if os.path.exists("dist/index.html"):
+        return FileResponse("dist/index.html")
+    return {"error": "Frontend not found"}
 
 if __name__ == "__main__":
     import uvicorn
