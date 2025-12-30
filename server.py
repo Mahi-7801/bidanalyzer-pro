@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from fastapi.encoders import jsonable_encoder
 from dotenv import load_dotenv
 from html2image import Html2Image
-from PIL import Image
+from PIL import Image, ImageOps
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -921,7 +921,6 @@ async def generate_pdf(
                 gray = page.convert("L")
                 # Counting whitespace is slow, let's use getbbox on inverted
                 # If page is white, inverted is black. getbbox on black returns valid box ONLY if there are non-black pixels.
-                from PIL import ImageOps
                 inverted = ImageOps.invert(gray)
                 if inverted.getbbox():
                      # Pad to A4
