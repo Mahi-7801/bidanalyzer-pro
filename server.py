@@ -872,29 +872,68 @@ async def generate_pdf(
         output_path = os.path.join(temp_dir, output_pdf)
         
         # Use html2image with CRITICAL flags for Docker/Linux
+        # Set a very large height to capture full content (approx 4 pages worth)
         hti = Html2Image(
             output_path=temp_dir, 
             temp_path=temp_dir, 
-            size=(1240, 1754),
+            size=(1240, 7016), # 4 * 1754 (A4 Height at ~96dpi or similar scale)
             custom_flags=['--no-sandbox', '--disable-gpu', '--headless', '--disable-dev-shm-usage']
         )
         
-        # 1. Screenshot to PNG (html2image doesn't support direct PDF output)
+        # 1. Screenshot to PNG (Capture full scroll)
         output_png = f"Report_{timestamp}.png"
         png_path = os.path.join(temp_dir, output_png)
         
         hti.screenshot(html_str=html_content, save_as=output_png)
         
         if not os.path.exists(png_path):
-             raise HTTPException(status_code=500, detail="HTML renrder failed: PNG snapshot not created.")
+             raise HTTPException(status_code=500, detail="HTML render failed: PNG snapshot not created.")
 
-        # 2. Convert PNG to PDF using PIL
+        # 2. Process image into Multi-Page PDF
         image = Image.open(png_path)
-        # Convert to RGB (remove alpha channel if present, as PDF doesn't support transparency same way)
         if image.mode == 'RGBA':
             image = image.convert('RGB')
+
+        A4_WIDTH = 1240
+        A4_HEIGHT = 1754
+        
+        img_width, img_height = image.size
+        pages = []
+        
+        # Slice image into A4 chunks
+        for y in range(0, img_height, A4_HEIGHT):
+            # Define box (left, upper, right, lower)
+            box = (0, y, A4_WIDTH, min(y + A4_HEIGHT, img_height))
             
-        image.save(output_path, "PDF", resolution=100.0, save_all=True)
+            # Use crop()
+            page = image.crop(box)
+            
+            # If the last page is just white space/empty, we could skip it, 
+            # but checking for "emptiness" is expensive. 
+            # We'll just check if it's too short (e.g. < 50px)
+            if page.height < 50:
+                continue
+                
+            # Resize/Pad last page to A4 if needed? 
+            # Usually better to leave it partial or pad with white.
+            # For PDF consistency, let's create a white A4 canvas and paste content
+            pdf_page = Image.new("RGB", (A4_WIDTH, A4_HEIGHT), (255, 255, 255))
+            pdf_page.paste(page, (0, 0))
+            
+            pages.append(pdf_page)
+
+        if not pages:
+            raise HTTPException(status_code=500, detail="PDF conversion failed: No pages generated.")
+
+        # Save all pages to PDF
+        # First page is the "base", others are appended
+        pages[0].save(
+            output_path, 
+            "PDF", 
+            resolution=100.0, 
+            save_all=True, 
+            append_images=pages[1:]
+        )
         
         if not os.path.exists(output_path):
              raise HTTPException(status_code=500, detail="PDF conversion failed.")
