@@ -1,3 +1,18 @@
+---
+title: Bidanalyzer Pro
+emoji: 📊
+colorFrom: green
+colorTo: red
+sdk: docker
+pinned: false
+license: apache-2.0
+short_description: AI-powered tender and bid document analyzer
+---
+
+# Bidanalyzer Pro
+
+AI-powered tool to analyze and summarize tender / bid documents.
+
 # BidAnalyzer Pro
 
 A powerful document analysis tool that extracts and analyzes tender/bid documents using AI (Google Gemini) and generates professional PDF reports.
