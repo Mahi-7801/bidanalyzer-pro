@@ -77,9 +77,15 @@ async def analyze_document(
     x_api_key: Optional[str] = Header(None)
 ):
     # 1. Determine API Key (Header > Env)
-    api_key = x_api_key or GEMINI_API_KEY
+    api_key = (x_api_key or "").strip()
     if not api_key:
-        raise HTTPException(status_code=400, detail="Gemini API Key missing.")
+        api_key = GEMINI_API_KEY
+
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Gemini API Key missing. Provide X-API-Key or configure server key."
+        )
 
     # 2. Save Upload Temporarily
     temp_filename = f"temp_{file.filename}"
@@ -596,7 +602,7 @@ def get_base64_image(image_path):
         return ""
 
 
-@app.get("/")
+@app.get("/health")
 def health_check():
     return {"status": "ok", "service": "BidAnalyzer Pro API"}
 
@@ -613,9 +619,15 @@ async def ask_question(
              raise HTTPException(status_code=400, detail="Missing question or context")
 
         # Determine API Key (Header > Env)
-        api_key = x_api_key or GEMINI_API_KEY
+        api_key = (x_api_key or "").strip()
         if not api_key:
-            raise HTTPException(status_code=400, detail="Gemini API Key missing.")
+            api_key = GEMINI_API_KEY
+
+        if not api_key:
+            raise HTTPException(
+                status_code=400,
+                detail="Gemini API Key missing. Provide X-API-Key or configure server key."
+            )
 
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel('gemini-2.5-flash')

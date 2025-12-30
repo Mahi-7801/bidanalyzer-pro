@@ -55,11 +55,16 @@ function App() {
     const formData = new FormData();
     formData.append('file', fileToProcess);
 
+    const headers = {};
+    if (apiKey && apiKey.trim()) {
+      headers["X-API-Key"] = apiKey.trim();
+    }
+
     try {
       // Assume backend runs on port 8000
       const response = await fetch(`${API_BASE_URL}/analyze`, {
         method: 'POST',
-        // headers: apiKey ? { 'x-api-key': apiKey } : {}, // Removed manual key key
+        headers,
         body: formData,
       });
 
@@ -523,10 +528,15 @@ const ResultsView = ({ data, question, setQuestion, history, setHistory, apiKey 
     // For this prototype, we'll simulate a generic answer or call the backend '/ask' 
     // passing the EXEC SUMMARY as context (just as a proof of concept).
 
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey && apiKey.trim()) {
+      headers["X-API-Key"] = apiKey.trim();
+    }
+
     try {
       const response = await fetch(`${API_BASE_URL}/ask`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(apiKey ? { 'x-api-key': apiKey } : {}) },
+        headers,
         body: JSON.stringify({ question: question, context: JSON.stringify(data) })
       });
 
