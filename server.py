@@ -138,6 +138,13 @@ async def analyze_document(
         
         return analysis_result
 
+    except Exception as e:
+        if os.path.exists(temp_filename):
+            try: os.remove(temp_filename)
+            except: pass
+        print(f"Analysis Failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # V2 File analysis that enables text retrieval if possible, 
 # but getting text back from Gemini file API is hard. 
 # Better strategy: We ALWAYS try to extract text locally first (lines 73-87).
