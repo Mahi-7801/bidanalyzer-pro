@@ -534,10 +534,13 @@ const ResultsView = ({ data, question, setQuestion, history, setHistory, apiKey 
     }
 
     try {
+      // Use full text context if available (better for Q&A), else fallback to JSON summary
+      const contextToSend = data._full_text_context || JSON.stringify(data);
+
       const response = await fetch(`${API_BASE_URL}/ask`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ question: question, context: JSON.stringify(data) })
+        body: JSON.stringify({ question: question, context: contextToSend })
       });
 
       const ansData = await response.json();

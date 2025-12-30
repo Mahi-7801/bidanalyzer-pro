@@ -122,15 +122,86 @@ async def analyze_document(
         if content_text and len(content_text.strip()) > 50:
             print("Analyzing extracted text...")
             analysis_result = analyze_with_gemini_text(content_text, api_key)
+            full_text_context = content_text
         else:
             print("Analyzing file (upload)...")
-            analysis_result = analyze_with_gemini_file(temp_filename, api_key)
+            analysis_result, full_text_context = analyze_with_gemini_file_v2(temp_filename, api_key)
         
         # Clean up
         try: os.remove(temp_filename)
         except: pass
         
+        # MERGE: Return analysis + HIDDEN full text for Q&A context
+        # We wrap it or just add a field if analysis_result is a dict
+        if isinstance(analysis_result, dict):
+             analysis_result["_full_text_context"] = full_text_context
+        
         return analysis_result
+
+# V2 File analysis that enables text retrieval if possible, 
+# but getting text back from Gemini file API is hard. 
+# Better strategy: We ALWAYS try to extract text locally first (lines 73-87).
+# If local extraction fails (scanned PDF), we might have an issue.
+# But current logic (line 120 server.py view previously) tries to extract text.
+# If that worked, we have 'content_text'. 
+# If it failed, we used 'analyze_with_gemini_file'.
+# In the 'file' case, we DON'T have the text for Q&A. 
+# We should probably force OCR or hope Gemini summary is good enough? 
+# OR, use Gemini's "File API" for Q&A too (uploading file once and persisting)... 
+# But that requires state.
+# Let's stick to the extracted text path. If text extraction failed, Q&A will be limited.
+# But for now, let's just assume we pass whatever text we have.
+
+def analyze_with_gemini_file_v2(file_path, api_key):
+    # Wrapper to match return signature if needed, or just standard
+    # actually existing analyze_with_gemini_file returns just the JSON.
+    # We will modify it to return (json, text_placeholder)
+    # Since we can't easily get text from a "file upload" analysis in Gemini (it just sees pixels/tokens),
+    # we will return an empty string for text context, and the Q&A will have to rely on the summary
+    # OR the user handles re-upload. 
+    # BUT, typically extract_text_pypdf works for most PDFs.
+    res = analyze_with_gemini_file(file_path, api_key)
+    return res, "Text extraction failed or was skipped. Q&A limited to summary."
+
+@app.post("/api/ask")
+async def ask_question(
+    data: dict,
+    x_api_key: Optional[str] = Header(None)
+):
+    try:
+        question = data.get("question")
+        context = data.get("context") # This will now be the FULL TEXT string
+        
+        if not question or not context:
+             raise HTTPException(status_code=400, detail="Missing question or context")
+
+        # Determine API Key (Header > Env)
+        api_key = (x_api_key or "").strip()
+        if not api_key:
+            api_key = GEMINI_API_KEY
+
+        if not api_key:
+            raise HTTPException(
+                status_code=400,
+                detail="Gemini API Key missing. Provide X-API-Key or configure server key."
+            )
+
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-2.5-flash')
+       # PROMPT
+        prompt = f"""
+        You are a helpful expert assistant for a government tender document.
+        
+        CONTEXT (Full Document Content):
+        {context[:100000]}  # Safety Truncate to ~100k chars to avoid token limits if very massive
+        
+        Question: {question}
+        
+        Answer the question concisely based strictly on the provided context. If the answer is not in the context, say so.
+        """
+        
+        response = model.generate_content(prompt)
+        return {"answer": response.text}
 
     except Exception as e:
         if os.path.exists(temp_filename):
@@ -326,7 +397,7 @@ Required_Documents (Array)
 - Include certificates, affidavits, forms, annexures
 
 Executive_Summary (String)
-- 3–5 sentences
+- 3-5 sentences
 - Cover:
   - What is being procured
   - Value & duration
@@ -532,48 +603,7 @@ def get_base64_image(image_path):
 def health_check():
     return {"status": "ok", "service": "BidAnalyzer Pro API"}
 
-@app.post("/api/ask")
-async def ask_question(
-    data: dict,
-    x_api_key: Optional[str] = Header(None)
-):
-    try:
-        question = data.get("question")
-        context = data.get("context")
-        
-        if not question or not context:
-             raise HTTPException(status_code=400, detail="Missing question or context")
 
-        # Determine API Key (Header > Env)
-        api_key = (x_api_key or "").strip()
-        if not api_key:
-            api_key = GEMINI_API_KEY
-
-        if not api_key:
-            raise HTTPException(
-                status_code=400,
-                detail="Gemini API Key missing. Provide X-API-Key or configure server key."
-            )
-
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.5-flash')
-       # PROMPT
-        prompt = f"""
-        You are a helpful expert assistant for a government tender document.
-        Here is the JSON summary of the tender document:
-        {context}
-        
-        Question: {question}
-        
-        Answer the question concisely based strictly on the provided context. If the answer is not in the context, say so.
-        """
-        
-        response = model.generate_content(prompt)
-        return {"answer": response.text}
-        
-    except Exception as e:
-        print(f"Ask Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 def generate_formatted_html(data):
     # Load Template
