@@ -148,141 +148,46 @@ def analyze_with_gemini_text(text: str, api_key: str):
     model = genai.GenerativeModel('gemini-2.5-flash')
     
     prompt = """
-You are a senior Tender Analyst AI specialized in Government & PSU procurement documents.
-You must READ THE ENTIRE DOCUMENT CAREFULLY before extracting any data.
+    You are an expert Tender Analyst. Analyze the following tender document text and extract key details.
+    
+    CRITICAL INSTRUCTION: Provide a CONCISE summary. 
+    - Maximum 300 words total.
+    - Use short bullet points.
+    - Avoid long paragraphs.
+    - Focus on the most important constraints and values.
 
-====================================
-CRITICAL RULES (NON-NEGOTIABLE)
-====================================
+    Output properly formatted JSON matching this structure exactly (do not add markdown code blocks, just raw JSON):
+    {
+        "Executive_Summary": "Short 3-4 sentence summary of the opportunity (Max 60 words).",
+        "Tender_Reference": "Ref No",
+        "Issuing_Authority": "Name of organization",
+        "Project_Name": "Title of work",
+        "Location": "City/State",
+        "Scope_of_Work": "Concise bullet points of main tasks (Max 5 bullets)",
+        "Contract_Period": "Duration",
+        "Technical_Specifications": "Key technical requirements (Brief)",
+        "Estimated_Value": "Value with currency",
+        "EMD_Amount": "EMD value",
+        "Tender_Fee": "Fee amount",
+        "Payment_Terms": "Brief payment structure",
+        "Important_Dates": {
+            "Bid_Submission_Deadline": "DD-MM-YYYY",
+            "Bid_Opening_Date": "DD-MM-YYYY",
+            "Pre_Bid_Meeting": "DD-MM-YYYY or N/A"
+        },
+        "Eligibility": {
+            "Min_Turnover": "Amount",
+            "Experience_Required": "Short description of past exp required",
+            "Other_Eligibility_Criteria": "Any other key constraint"
+        },
+        "Required_Documents": [
+            "Doc 1", "Doc 2", "Doc 3"
+        ],
+        "Submission_Method": "Online/Offline details",
+        "Contact_Details": "Email/Phone of authority"
+    }
 
-1. NO ASSUMPTIONS OR GUESSING
-   - Extract only what is explicitly present in the document.
-   - If a value is unclear or partially visible, state it clearly.
-
-2. REFERENCE RESOLUTION (MANDATORY)
-   When you see phrases like:
-   - "Refer to Para X"
-   - "As per Clause Y"
-   - "See Annexure Z"
-
-   You MUST:
-   a) Search the ENTIRE document
-   b) Try variations:
-      - Para / Paragraph
-      - Clause / Section
-      - Annexure / Appendix / Schedule
-   c) Search ALL locations:
-      - NIT
-      - GCC / SCC
-      - Technical Specs
-      - BOQ
-      - Annexures
-      - Tables, footnotes, headers
-
-   If found:
-   → Extract the ACTUAL VALUE from the referenced section
-
-   If NOT found after exhaustive search:
-   → Write exactly:
-     "Referenced in <reference> but details not found in extracted text"
-
-3. NEVER write "Not Specified" if a reference exists.
-   Use "Not Specified" ONLY when:
-   - No value
-   - No reference
-   - No implied criteria
-
-4. CONFLICT RESOLUTION
-   - If multiple values exist:
-     Priority order:
-     1) Special Conditions
-     2) Technical Specifications
-     3) NIT
-     4) GCC
-   - Mention conflicts clearly if unresolved.
-
-5. NORMALIZATION RULES
-   - Dates → DD-MM-YYYY
-   - Time → HH:mm (24-hour)
-   - Currency → Preserve original (₹ / Rs / INR / %)
-   - DO NOT convert amounts unless explicitly stated.
-
-====================================
-ELIGIBILITY EXTRACTION (STRICT)
-====================================
-
-For ALL eligibility-related fields:
-- Search referenced clauses deeply
-- Extract COMPLETE criteria including:
-  - Amount
-  - Time period
-  - Financial years
-  - Nature of work
-  - Quantity / value thresholds
-
-If eligibility is split across clauses:
-→ Merge into a single, complete requirement.
-
-====================================
-FIELDS TO EXTRACT (STRICT JSON)
-====================================
-
-Tender_Reference (String)
-Issuing_Authority (String)
-Project_Name (String)
-Location (String)
-Estimated_Value (String)
-EMD_Amount (String)
-Tender_Fee (String)
-
-Important_Dates (Object)
-- Extract ALL dates with exact labels as mentioned
-
-Eligibility (Object with these keys):
-  - Min_Turnover (String: Complete criteria with amount, period, financial years)
-  - Experience_Required (String: Complete criteria with years, nature of work)
-  - Other_Eligibility_Criteria (String: Any other qualifying conditions)
-
-Scope_of_Work (String: MAX 200 characters)
-- Use 2-3 bullet points OR one concise sentence
-- Example: "• PSC sleepers for BG • Monoblock & curve types • RDSO spec compliance"
-
-Contract_Period (String)
-
-Payment_Terms (String: MAX 150 characters)
-- 1-2 sentences only
-
-Technical_Specifications (String: MAX 250 characters)
-- KEY points only, not paragraphs
-- Reference detailed clauses if needed
-
-Submission_Method (String)
-Contact_Details (String)
-
-Required_Documents (Array)
-- Extract EVERY required document
-- Include certificates, affidavits, forms, annexures
-
-Executive_Summary (String)
-- 3–5 sentences
-- Cover:
-  - What is being procured
-  - Value & duration
-  - Key eligibility
-  - Submission mode
-
-====================================
-OUTPUT RULES
-====================================
-
-- OUTPUT ONLY VALID JSON
-- NO markdown
-- NO explanations
-- NO comments
-- NO backticks
-- Preserve exact wording from document wherever possible
-
-Search the ENTIRE document before finalizing ANY field.
+    Tender Text:
     """
     
     # Safety truncate
@@ -652,7 +557,7 @@ async def ask_question(
 
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel('gemini-2.5-flash')
-        
+       # PROMPT
         prompt = f"""
         You are a helpful expert assistant for a government tender document.
         Here is the JSON summary of the tender document:
@@ -696,8 +601,8 @@ def generate_formatted_html(data):
     """
     
     css_part2 = """
-            background-size: 1240px 1754px;
-            background-repeat: repeat-y;
+            background-repeat: no-repeat;
+            background-size: 1240px 1754px; /* A4 dimensions */
             box-sizing: border-box;
             padding: 100px 80px 60px 80px; 
             display: flex;
